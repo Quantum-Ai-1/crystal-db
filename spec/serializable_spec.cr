@@ -81,6 +81,29 @@ class ModelWithJSON
   property c1 : String
 end
 
+struct ModelWithEnum
+  include DB::Serializable
+
+  getter c0 : Int32
+  getter c1 : MyEnum
+  # Ensure multiple enum types work together
+  getter c2 : MyOtherEnum
+
+  enum MyEnum
+    Foo  = 0
+    Bar  = 1
+    Baz  = 2
+    Quux = 3
+  end
+
+  enum MyOtherEnum
+    OMG
+    LOL
+    WTF
+    BBQ
+  end
+end
+
 macro from_dummy(query, type)
   with_dummy do |db|
     rs = db.query({{ query }})
@@ -105,19 +128,19 @@ describe "DB::Serializable" do
   end
 
   it "should fail to initialize a simple model if types do not match" do
-    expect_raises ArgumentError do
+    expect_raises DB::MappingException, /Invalid Int32: "?b"?\n  deserializing SimpleModel#c0/ do
       from_dummy("b,a", SimpleModel)
     end
   end
 
   it "should fail to initialize a simple model if there is a missing column" do
-    expect_raises DB::MappingException do
+    expect_raises DB::MappingException, "Missing column c1\n  deserializing SimpleModel#c1" do
       from_dummy("1", SimpleModel)
     end
   end
 
   it "should fail to initialize a simple model if there is an unexpected column" do
-    expect_raises DB::MappingException do
+    expect_raises DB::MappingException, "Unknown column: c2\n  deserializing SimpleModel" do
       from_dummy("1,a,b", SimpleModel)
     end
   end
@@ -170,6 +193,17 @@ describe "DB::Serializable" do
 
   it "should initialize a model with JSON serialization also defined" do
     expect_model("1,a", ModelWithJSON, {c0: 1, c1: "a"})
+  end
+
+  it "should initialize a model with an enum property" do
+    expect_model("1,2,LOL", ModelWithEnum, {
+      c0: 1,
+      c1: ModelWithEnum::MyEnum::Baz,
+      c2: ModelWithEnum::MyOtherEnum::LOL,
+    })
+    expect_raises DB::MappingException, "Unknown enum ModelWithEnum::MyEnum value: adsf" do
+      from_dummy("1,adsf,BBQ", ModelWithEnum)
+    end
   end
 
   it "should initialize multiple instances from a single resultset" do

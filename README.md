@@ -7,7 +7,10 @@ Common db api for crystal. You will need to have a specific driver to access a d
 * [SQLite](https://github.com/crystal-lang/crystal-sqlite3)
 * [MySQL](https://github.com/crystal-lang/crystal-mysql)
 * [PostgreSQL](https://github.com/will/crystal-pg)
+* [ODBC](https://github.com/naqvis/crystal-odbc)
 * [Cassandra](https://github.com/kaukas/crystal-cassandra)
+* [DuckDB](https://github.com/amauryt/crystal-duckdb)
+* [Microsoft SQL Server](https://github.com/wonderix/crystal-tds)
 
 ## Installation
 
@@ -33,7 +36,7 @@ Note: Multiple drivers can be included in the same application.
 
 ## Documentation
 
-* [Latest API](http://crystal-lang.github.io/crystal-db/api/latest/)
+* [Latest API](https://crystal-lang.github.io/crystal-db/api/latest/)
 * [Crystal book](https://crystal-lang.org/docs/database/)
 
 ## Usage
@@ -81,7 +84,7 @@ Issues not yet addressed:
 - [x] Data type extensibility. Allow each driver to extend the data types allowed.
 - [x] Transactions & nested transactions. [#27](https://github.com/crystal-lang/crystal-db/pull/27)
 - [x] Connection pool.
-- [ ] Logging
+- [x] Logging
 - [ ] Direct access to `IO` to avoid memory allocation for blobs.
 
 ## Contributing

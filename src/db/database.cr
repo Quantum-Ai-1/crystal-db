@@ -10,8 +10,9 @@ module DB
   #
   # ## Database URI
   #
-  # Connection parameters are configured in a URI. The format is specified by the individual
-  # database drivers. See the [reference book](https://crystal-lang.org/reference/database/) for examples.
+  # Connection parameters are usually in a URI. The format is specified by the individual
+  # database drivers, yet there are some common properties names usually shared.
+  # See the [reference book](https://crystal-lang.org/reference/database/) for examples.
   #
   # The connection pool can be configured from URI parameters:
   #
@@ -32,33 +33,33 @@ module DB
     include ConnectionContext
 
     # :nodoc:
-    getter driver
-    # :nodoc:
     getter pool
 
-    # Returns the uri with the connection settings to the database
-    getter uri : URI
-
-    getter? prepared_statements : Bool
-
+    @connection_options : Connection::Options
     @pool : Pool(Connection)
     @setup_connection : Connection -> Nil
-    @statements_cache = StringKeyCache(PoolPreparedStatement).new
 
-    # :nodoc:
-    def initialize(@driver : Driver, @uri : URI)
-      params = HTTP::Params.parse(uri.query || "")
-      @prepared_statements = DB.fetch_bool(params, "prepared_statements", true)
-      pool_options = @driver.connection_pool_options(params)
-
-      @setup_connection = ->(conn : Connection) {}
+    # Initialize a database with the specified options and connection factory.
+    # This covers more advanced use cases that might not be supported by an URI connection string such as tunneling connection.
+    def initialize(connection_options : Connection::Options, pool_options : Pool::Options, &factory : -> Connection)
+      @connection_options = connection_options
+      @setup_connection = ->(conn : Connection) { }
       @pool = uninitialized Pool(Connection) # in order to use self in the factory proc
-      @pool = Pool.new(**pool_options) {
-        conn = @driver.build_connection(self).as(Connection)
+      @pool = Pool(Connection).new(pool_options) {
+        conn = factory.call
         conn.auto_release = false
+        conn.context = self
         @setup_connection.call conn
         conn
       }
+    end
+
+    def prepared_statements? : Bool
+      @connection_options.prepared_statements
+    end
+
+    def prepared_statements_cache? : Bool
+      @connection_options.prepared_statements_cache
     end
 
     # Run the specified block every time a new connection is established, yielding the new connection
@@ -79,9 +80,6 @@ module DB
 
     # Closes all connection to the database.
     def close
-      @statements_cache.each_value &.close
-      @statements_cache.clear
-
       @pool.close
     end
 
@@ -97,11 +95,6 @@ module DB
 
     # :nodoc:
     def fetch_or_build_prepared_statement(query) : PoolStatement
-      @statements_cache.fetch(query) { build_prepared_statement(query) }
-    end
-
-    # :nodoc:
-    def build_prepared_statement(query) : PoolStatement
       PoolPreparedStatement.new(self, query)
     end
 
@@ -118,7 +111,7 @@ module DB
     # yields a connection from the pool
     # the connection is returned to the pool
     # when the block ends
-    def using_connection
+    def using_connection(&)
       connection = self.checkout
       begin
         yield connection
@@ -138,7 +131,7 @@ module DB
 
     # yields a `Transaction` from a connection of the pool
     # Refer to `BeginTransaction#transaction` for documentation.
-    def transaction
+    def transaction(&)
       using_connection do |cnn|
         cnn.transaction do |tx|
           yield tx
@@ -147,7 +140,7 @@ module DB
     end
 
     # :nodoc:
-    def retry
+    def retry(&)
       @pool.retry do
         yield
       end

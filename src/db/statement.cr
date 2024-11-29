@@ -2,13 +2,8 @@ module DB
   # Common interface for connection based statements
   # and for connection pool statements.
   module StatementMethods
-    include Disposable
-
-    protected def do_close
-    end
-
     # See `QueryMethods#scalar`
-    def scalar(*args_, args : Array? = nil)
+    def scalar(*args_, args : Enumerable? = nil)
       query(*args_, args: args) do |rs|
         rs.each do
           return rs.read
@@ -19,7 +14,7 @@ module DB
     end
 
     # See `QueryMethods#query`
-    def query(*args_, args : Array? = nil)
+    def query(*args_, args : Enumerable? = nil, &)
       rs = query(*args_, args: args)
       yield rs ensure rs.close
     end
@@ -27,12 +22,12 @@ module DB
     # See `QueryMethods#exec`
     abstract def exec : ExecResult
     # See `QueryMethods#exec`
-    abstract def exec(*args_, args : Array? = nil) : ExecResult
+    abstract def exec(*args_, args : Enumerable? = nil) : ExecResult
 
     # See `QueryMethods#query`
     abstract def query : ResultSet
     # See `QueryMethods#query`
-    abstract def query(*args_, args : Array? = nil) : ResultSet
+    abstract def query(*args_, args : Enumerable? = nil) : ResultSet
   end
 
   # Represents a query in a `Connection`.
@@ -47,6 +42,10 @@ module DB
   # 6. `#do_close` is called to release the statement resources.
   abstract class Statement
     include StatementMethods
+    include Disposable
+
+    protected def do_close
+    end
 
     # :nodoc:
     getter connection
@@ -54,6 +53,15 @@ module DB
     getter command : String
 
     def initialize(@connection : Connection, @command : String)
+    end
+
+    # :nodoc:
+    property auto_close : Bool = false
+
+    # :nodoc:
+    def release_from_result_set
+      self.close if @auto_close
+      self.release_connection
     end
 
     def release_connection
@@ -66,7 +74,7 @@ module DB
     end
 
     # See `QueryMethods#exec`
-    def exec(*args_, args : Array? = nil) : DB::ExecResult
+    def exec(*args_, args : Enumerable? = nil) : DB::ExecResult
       perform_exec_and_release(EnumerableConcat.build(args_, args))
     end
 
@@ -76,7 +84,7 @@ module DB
     end
 
     # See `QueryMethods#query`
-    def query(*args_, args : Array? = nil) : DB::ResultSet
+    def query(*args_, args : Enumerable? = nil) : DB::ResultSet
       perform_query_with_rescue(EnumerableConcat.build(args_, args))
     end
 
@@ -105,7 +113,7 @@ module DB
     # This method is called when executing the statement. Although it can be
     # redefined, it is recommended to use the `def_around_query_or_exec` macro
     # to be able to add new behaviors without loosing prior existing ones.
-    protected def around_query_or_exec(args : Enumerable)
+    protected def around_query_or_exec(args : Enumerable, &)
       yield
     end
 

@@ -95,6 +95,20 @@ describe DB::Transaction do
     t.committed.should be_false
   end
 
+  it "transaction with block from connection should be committed if `return` is called" do
+    t = uninitialized DummyDriver::DummyTransaction
+
+    with_witness do |w|
+      with_dummy_connection do |cnn|
+        t = return_from_txn(cnn).as(DummyDriver::DummyTransaction)
+        w.check
+      end
+    end
+
+    t.rolledback.should be_false
+    t.committed.should be_true
+  end
+
   it "transaction can be committed within block" do
     with_dummy_connection do |cnn|
       cnn.transaction do |tx|
@@ -174,5 +188,46 @@ describe DB::Transaction do
       end
       db.pool.is_available?(cnn).should be_true
     end
+  end
+
+  it "returns block value when sucess" do
+    with_dummy_connection do |cnn|
+      res = cnn.transaction do |tx|
+        42
+      end
+
+      res.should eq(42)
+      typeof(res).should eq(Int32 | Nil)
+    end
+  end
+
+  it "returns value on rollback via method" do
+    with_dummy_connection do |cnn|
+      res = cnn.transaction do |tx|
+        tx.rollback
+        42
+      end
+
+      res.should eq(42)
+      typeof(res).should eq(Int32 | Nil)
+    end
+  end
+
+  it "returns nil on rollback via exception" do
+    with_dummy_connection do |cnn|
+      res = cnn.transaction do |tx|
+        raise DB::Rollback.new
+        42
+      end
+
+      res.should be_nil
+      typeof(res).should eq(Int32 | Nil)
+    end
+  end
+end
+
+private def return_from_txn(cnn)
+  cnn.transaction do |tx|
+    return tx
   end
 end

@@ -8,7 +8,7 @@ describe DB::Database do
 
       db.setup_connection do |cnn|
         cnn_setup += 1
-        cnn.scalar("1").should eq "1"
+        cnn.scalar("a").should eq "a"
       end
 
       cnn_setup.should eq(2)
@@ -55,14 +55,6 @@ describe DB::Database do
       db.build("query2").should_not eq(stmt)
       db.build("query1").should eq(stmt)
     end
-  end
-
-  it "should close pool statements when closing db" do
-    stmt = uninitialized DB::PoolStatement
-    with_dummy do |db|
-      stmt = db.build("query1")
-    end
-    stmt.closed?.should be_true
   end
 
   it "should not reconnect if connection is lost and retry_attempts=0" do
@@ -169,6 +161,40 @@ describe DB::Database do
         db.unprepared.exec("syntax error")
       end
       db.pool.is_available?(connection).should be_true
+    end
+  end
+
+  it "should close connection on ConnectionLost" do
+    DummyDriver::DummyConnection.clear_connections
+    DB.open "dummy://localhost:1027?initial_pool_size=1&max_pool_size=1&retry_attempts=1" do |db|
+      db.exec("stmt1")
+      DummyDriver::DummyConnection.connections.size.should eq(1)
+      connection = DummyDriver::DummyConnection.connections.first
+      connection.disconnect!
+      connection.closed?.should be_false
+      db.exec("stmt1")
+      # A new connection was used for the last statement
+      DummyDriver::DummyConnection.connections.size.should eq(2)
+      connection.closed?.should be_true
+    end
+  end
+
+  it "should not checkout multiple connections if there is a statement error" do
+    with_dummy "dummy://localhost:1027?initial_pool_size=1&max_pool_size=10&retry_attempts=10" do |db|
+      expect_raises DB::Error do
+        db.exec("syntax error")
+      end
+      DummyDriver::DummyConnection.connections.size.should eq(1)
+    end
+  end
+
+  it "should attempt all retries if connection is lost" do
+    with_dummy "dummy://localhost:1027?initial_pool_size=1&max_pool_size=1&retry_attempts=10" do |db|
+      expect_raises DB::PoolRetryAttemptsExceeded do
+        db.exec("raise ConnectionLost")
+      end
+      # 1 initial + 10 retries
+      DummyDriver::DummyConnection.connections.size.should eq(11)
     end
   end
 

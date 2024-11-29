@@ -75,6 +75,10 @@ require "log"
 # end
 # ```
 #
+# ### Object mapping
+#
+# The `DB::Serializable` module implements a declarative mapping from DB result
+# sets to Crystal types.
 module DB
   Log = ::Log.for(self)
 
@@ -85,7 +89,7 @@ module DB
 
   # See `DB::TYPES` in `DB`. `Any` is a union of all types in `DB::TYPES`
   {% begin %}
-    alias Any = Union({{*TYPES}})
+    alias Any = Union({{TYPES.splat}})
   {% end %}
 
   # Result of a `#exec` statement.
@@ -152,7 +156,13 @@ module DB
   end
 
   private def self.build_database(uri : URI)
-    Database.new(build_driver(uri), uri)
+    driver = build_driver(uri)
+    params = HTTP::Params.parse(uri.query || "")
+    connection_options = driver.connection_options(params)
+    pool_options = driver.pool_options(params)
+    builder = driver.connection_builder(uri)
+    factory = -> { builder.build }
+    Database.new(connection_options, pool_options, &factory)
   end
 
   private def self.build_connection(connection_string : String)
@@ -160,7 +170,7 @@ module DB
   end
 
   private def self.build_connection(uri : URI)
-    build_driver(uri).build_connection(SingleConnectionContext.new(uri)).as(Connection)
+    build_driver(uri).connection_builder(uri).build
   end
 
   private def self.build_driver(uri : URI)
@@ -188,6 +198,7 @@ require "./db/enumerable_concat"
 require "./db/query_methods"
 require "./db/session_methods"
 require "./db/disposable"
+require "./db/connection_builder"
 require "./db/driver"
 require "./db/statement"
 require "./db/begin_transaction"

@@ -1,36 +1,69 @@
-require "spec"
 require "../src/db"
 
 class DummyDriver < DB::Driver
-  def build_connection(context : DB::ConnectionContext) : DB::Connection
-    DummyConnection.new(context)
+  class DummyConnectionBuilder < DB::ConnectionBuilder
+    def initialize(@options : DB::Connection::Options)
+    end
+
+    def build : DB::Connection
+      DummyConnection.new(@options)
+    end
+  end
+
+  def connection_builder(uri : URI) : DB::ConnectionBuilder
+    params = HTTP::Params.parse(uri.query || "")
+    DummyConnectionBuilder.new(connection_options(params))
   end
 
   class DummyConnection < DB::Connection
-    def initialize(context)
-      super(context)
+    @@connections = [] of DummyConnection
+    @@connections_count = Atomic(Int32).new(0)
+
+    def initialize(options : DB::Connection::Options)
+      super(options)
+      Fiber.yield
+      @@connections_count.add(1)
       @connected = true
-      @@connections ||= [] of DummyConnection
-      @@connections.not_nil! << self
+      {% unless flag?(:preview_mt) %}
+        # @@connections is only used in single-threaded mode in specs
+        # for benchmarks we want to avoid the overhead of synchronizing this array
+        @@connections << self
+      {% end %}
+    end
+
+    def self.connections_count
+      @@connections_count.get
     end
 
     def self.connections
-      @@connections.not_nil!
+      {% if flag?(:preview_mt) %}
+        raise "DummyConnection.connections is only available in single-threaded mode"
+      {% end %}
+      @@connections
     end
 
     def self.clear_connections
-      @@connections.try &.clear
+      {% if flag?(:preview_mt) %}
+        raise "DummyConnection.clear_connections is only available in single-threaded mode"
+      {% end %}
+      @@connections.clear
     end
 
     def build_prepared_statement(query) : DB::Statement
+      assert_not_closed!
+
       DummyStatement.new(self, query, true)
     end
 
     def build_unprepared_statement(query) : DB::Statement
+      assert_not_closed!
+
       DummyStatement.new(self, query, false)
     end
 
     def last_insert_id : Int64
+      assert_not_closed!
+
       0
     end
 
@@ -43,11 +76,17 @@ class DummyDriver < DB::Driver
     end
 
     def create_transaction
+      assert_not_closed!
+
       DummyTransaction.new(self)
     end
 
     protected def do_close
       super
+    end
+
+    private def assert_not_closed!
+      raise "Statement is closed" if closed?
     end
   end
 
@@ -94,21 +133,42 @@ class DummyDriver < DB::Driver
   end
 
   class DummyStatement < DB::Statement
+    @@statements_count = Atomic(Int32).new(0)
+    @@statements_exec_count = Atomic(Int32).new(0)
     property params
 
     def initialize(connection, command : String, @prepared : Bool)
       @params = Hash(Int32 | String, DB::Any | Array(DB::Any)).new
       super(connection, command)
+      @@statements_count.add(1)
       raise DB::Error.new(command) if command == "syntax error"
+      raise DB::ConnectionLost.new(connection) if command == "raise ConnectionLost"
+    end
+
+    def self.statements_count
+      @@statements_count.get
+    end
+
+    def self.statements_exec_count
+      @@statements_exec_count.get
     end
 
     protected def perform_query(args : Enumerable) : DB::ResultSet
+      assert_not_closed!
+
+      @@statements_exec_count.add(1)
+
+      Fiber.yield
       @connection.as(DummyConnection).check
       set_params args
       DummyResultSet.new self, command
     end
 
     protected def perform_exec(args : Enumerable) : DB::ExecResult
+      assert_not_closed!
+
+      @@statements_exec_count.add(1)
+
       @connection.as(DummyConnection).check
       set_params args
       raise DB::Error.new("forced exception due to query") if command == "raise"
@@ -141,6 +201,10 @@ class DummyDriver < DB::Driver
     protected def do_close
       super
     end
+
+    private def assert_not_closed!
+      raise "Statement is closed" if closed?
+    end
   end
 
   class DummyResultSet < DB::ResultSet
@@ -151,6 +215,8 @@ class DummyDriver < DB::Driver
 
     def initialize(statement, command)
       super(statement)
+      Fiber.yield
+
       @top_values = command.split.map { |r| r.split(',') }.to_a
       @column_count = @top_values.size > 0 ? @top_values[0].size : 2
 
@@ -187,7 +253,11 @@ class DummyDriver < DB::Driver
         return (@statement.as(DummyStatement)).params[0]
       end
 
-      return n
+      n.to_i64? || n
+    end
+
+    def next_column_index : Int32
+      @column_count - @values.not_nil!.size
     end
 
     def read(t : String.class)
@@ -249,13 +319,13 @@ class Witness
   end
 end
 
-def with_witness(count = 1)
+def with_witness(count = 1, &)
   w = Witness.new(count)
   yield w
   w.count.should eq(0), "The expected coverage was unmet"
 end
 
-def with_dummy(uri : String = "dummy://host?checkout_timeout=0.5")
+def with_dummy(uri : String = "dummy://host?checkout_timeout=0.5", &)
   DummyDriver::DummyConnection.clear_connections
 
   DB.open uri do |db|
@@ -263,7 +333,7 @@ def with_dummy(uri : String = "dummy://host?checkout_timeout=0.5")
   end
 end
 
-def with_dummy_connection(options = "")
+def with_dummy_connection(options = "", &)
   with_dummy("dummy://host?checkout_timeout=0.5&#{options}") do |db|
     db.using_connection do |cnn|
       yield cnn.as(DummyDriver::DummyConnection)

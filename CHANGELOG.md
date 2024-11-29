@@ -1,3 +1,50 @@
+## v0.13.1 (2023-12-21)
+
+* Gracefully allow spec helper to fail on older crystal. ([#202](https://github.com/crystal-lang/crystal-db/pull/202), thanks @bcardiff)
+
+## v0.13.0 (2023-12-11)
+
+* **(breaking-change)** Deprecate `DB.mapping`. ([#196](https://github.com/crystal-lang/crystal-db/pull/196), thanks @straight-shoota)
+* **(breaking-change)** Drop `Pool#checkout_some`, make `PoolStatement` a struct. ([#200](https://github.com/crystal-lang/crystal-db/pull/200), thanks @bcardiff)
+* Simplifications and performance improvements on pool statements. ([#200](https://github.com/crystal-lang/crystal-db/pull/200), thanks @bcardiff)
+* Allow `prepared_statements_cache=false`` option to disable prepared statements cache. ([#194](https://github.com/crystal-lang/crystal-db/pull/194), [#198](https://github.com/crystal-lang/crystal-db/pull/198), thanks @bcardiff)
+* Add exception cause support to `PoolResourceLost` and `ConnectionLost` constructors. ([#199](https://github.com/crystal-lang/crystal-db/pull/199), thanks @lachlan)
+* Fix inflight counter on `ConnectionRefused`. ([#184](https://github.com/crystal-lang/crystal-db/pull/184), thanks @jgaskins)
+* Fix max_idle_pool_size race condition. ([#186](https://github.com/crystal-lang/crystal-db/pull/186), thanks @bcardiff)
+* Fix `DB::DriverSpecs#with_db` `connection_string` query param support. ([#192](https://github.com/crystal-lang/crystal-db/pull/192), thanks @lachlan)
+* Update docs regarding `ConnectionBuilder`. ([#188](https://github.com/crystal-lang/crystal-db/pull/188), thanks @bcardiff)
+* Add reference to `DB::Serializable` in docs. ([#197](https://github.com/crystal-lang/crystal-db/pull/197), thanks @straight-shoota)
+* Add link to crystal-tds. ([#193](https://github.com/crystal-lang/crystal-db/pull/193), thanks @wonderix)
+
+### Notes for driver implementors
+
+* Use new constructors to preserve the underlying reason of a `PoolResourceLost` or `ConnectionLost` constructors (See [#199](https://github.com/crystal-lang/crystal-db/pull/199))
+
+## v0.12.0 (2023-06-23)
+
+- **(breaking-change)** Refactor how drivers create connections. Allow creating `Database` without `URI`s. ([#181](https://github.com/crystal-lang/crystal-db/pull/181), thanks @bcardiff)
+- Close a transaction when `return`ing from within its block. ([#167](https://github.com/crystal-lang/crystal-db/pull/167), thanks @jgaskins)
+- Fix race conditions in multi-thread mode. ([#178](https://github.com/crystal-lang/crystal-db/pull/178), thanks @bcardiff)
+- Allow the use of `Enum`s when reading a `ResultSet`. ([#168](https://github.com/crystal-lang/crystal-db/pull/168), thanks @jgaskins)
+- Fix specs for Crystal 1.4 and 1.5. ([#163](https://github.com/crystal-lang/crystal-db/pull/163), [#173](https://github.com/crystal-lang/crystal-db/pull/173), thanks @straight-shoota)
+- Update README. ([#172](https://github.com/crystal-lang/crystal-db/pull/172), [#180](https://github.com/crystal-lang/crystal-db/pull/180), thanks @amauryt, @jgaskins)
+
+Note: The breaking-change introduced in this release does not affect consumers of the library, only driver implementors.
+
+## v0.11.0 (2022-01-27)
+
+* Fix `Connection#transaction` method to return the block value as the result. ([#159](https://github.com/crystal-lang/crystal-db/pull/159), [#160](https://github.com/crystal-lang/crystal-db/pull/160), thanks @bcardiff)
+* Add `DB::ColumnTypeMismatchError` error with column and type information. ([#156](https://github.com/crystal-lang/crystal-db/pull/156), thanks @jwoertink, @bcardiff)
+* Improve `DB::MappingException` error. ([#129](https://github.com/crystal-lang/crystal-db/pull/129), thanks @straight-shoota)
+* Close connection resource when connection is lost. ([#155](https://github.com/crystal-lang/crystal-db/pull/155), thanks @stakach, @bcardiff)
+* Discard closed connections in the pool when they are returned. ([#154](https://github.com/crystal-lang/crystal-db/pull/154), thanks @stakach)
+* Fix typo in `Mode.from_rs` argument type. ([#142](https://github.com/crystal-lang/crystal-db/pull/142), thanks @dukeraphaelng)
+* Migrate CI to GitHub Actions. ([#147](https://github.com/crystal-lang/crystal-db/pull/147), [#152](https://github.com/crystal-lang/crystal-db/pull/152), thanks @oprypin, thanks @straight-shoota)
+
+This release requires Crystal 1.0.0 or later.
+
+Note: For drivers implementations [#156](https://github.com/crystal-lang/crystal-db/pull/156) adds a `abstract def next_column_index : Int32` to `ResultSet` so there is a breaking-change that does not affect consumers of the library.
+
 ## v0.10.1 (2021-03-22)
 
 * Add docs for `DB::Database#setup_connection` ([#139](https://github.com/crystal-lang/crystal-db/pull/139), thanks @jgaskins)

@@ -23,21 +23,44 @@ module DB
     include SessionMethods(Connection, Statement)
     include BeginTransaction
 
+    record Options,
+      # Return whether the statements should be prepared by default
+      prepared_statements : Bool = true,
+      # Return whether the prepared statements should be cached or not
+      prepared_statements_cache : Bool = true do
+      def self.from_http_params(params : HTTP::Params, default = Options.new)
+        Options.new(
+          prepared_statements: DB.fetch_bool(params, "prepared_statements", default.prepared_statements),
+          prepared_statements_cache: DB.fetch_bool(params, "prepared_statements_cache", default.prepared_statements)
+        )
+      end
+    end
+
     # :nodoc:
-    getter context
+    property context : ConnectionContext = SingleConnectionContext.default
     @statements_cache = StringKeyCache(Statement).new
     @transaction = false
-    getter? prepared_statements : Bool
     # :nodoc:
     property auto_release : Bool = true
 
-    def initialize(@context : ConnectionContext)
-      @prepared_statements = @context.prepared_statements?
+    def initialize(@options : Options)
+    end
+
+    def prepared_statements? : Bool
+      @options.prepared_statements
+    end
+
+    def prepared_statements_cache? : Bool
+      @options.prepared_statements_cache
     end
 
     # :nodoc:
     def fetch_or_build_prepared_statement(query) : Statement
-      @statements_cache.fetch(query) { build_prepared_statement(query) }
+      if @options.prepared_statements_cache
+        @statements_cache.fetch(query) { build_prepared_statement(query) }
+      else
+        build_prepared_statement(query)
+      end
     end
 
     # :nodoc:
@@ -59,7 +82,7 @@ module DB
     protected def do_close
       @statements_cache.each_value &.close
       @statements_cache.clear
-      @context.discard self
+      context.discard self
     end
 
     # :nodoc:
@@ -75,7 +98,7 @@ module DB
     # managed by the database. Should be used
     # only if the connection was obtained by `Database#checkout`.
     def release
-      @context.release(self)
+      context.release(self)
     end
 
     # :nodoc:

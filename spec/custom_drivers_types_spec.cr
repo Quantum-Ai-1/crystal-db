@@ -20,6 +20,10 @@ module GenericResultSet
     @index += 1
     @row[@index - 1]
   end
+
+  def next_column_index : Int32
+    @index
+  end
 end
 
 class FooValue
@@ -32,6 +36,15 @@ class FooValue
 end
 
 class FooDriver < DB::Driver
+  class FooConnectionBuilder < DB::ConnectionBuilder
+    def initialize(@options : DB::Connection::Options)
+    end
+
+    def build : DB::Connection
+      FooConnection.new(@options)
+    end
+  end
+
   alias Any = DB::Any | FooValue
   @@row = [] of Any
 
@@ -43,16 +56,17 @@ class FooDriver < DB::Driver
     @@row
   end
 
-  def build_connection(context : DB::ConnectionContext) : DB::Connection
-    FooConnection.new(context)
+  def connection_builder(uri : URI) : DB::ConnectionBuilder
+    params = HTTP::Params.parse(uri.query || "")
+    FooConnectionBuilder.new(connection_options(params))
   end
 
   class FooConnection < DB::Connection
-    def build_prepared_statement(command) : DB::Statement
-      FooStatement.new(self, command)
+    def build_prepared_statement(query) : DB::Statement
+      FooStatement.new(self, query)
     end
 
-    def build_unprepared_statement(command) : DB::Statement
+    def build_unprepared_statement(query) : DB::Statement
       raise "not implemented"
     end
   end
@@ -95,6 +109,15 @@ class BarValue
 end
 
 class BarDriver < DB::Driver
+  class BarConnectionBuilder < DB::ConnectionBuilder
+    def initialize(@options : DB::Connection::Options)
+    end
+
+    def build : DB::Connection
+      BarConnection.new(@options)
+    end
+  end
+
   alias Any = DB::Any | BarValue
   @@row = [] of Any
 
@@ -106,8 +129,9 @@ class BarDriver < DB::Driver
     @@row
   end
 
-  def build_connection(context : DB::ConnectionContext) : DB::Connection
-    BarConnection.new(context)
+  def connection_builder(uri : URI) : DB::ConnectionBuilder
+    params = HTTP::Params.parse(uri.query || "")
+    BarConnectionBuilder.new(connection_options(params))
   end
 
   class BarConnection < DB::Connection
@@ -152,8 +176,8 @@ DB.register_driver "bar", BarDriver
 
 describe DB do
   it "should be able to register multiple drivers" do
-    DB.open("foo://host").driver.should be_a(FooDriver)
-    DB.open("bar://host").driver.should be_a(BarDriver)
+    DB.open("foo://host").checkout.should be_a(FooDriver::FooConnection)
+    DB.open("bar://host").checkout.should be_a(BarDriver::BarConnection)
   end
 
   it "Foo and Bar drivers should return fake_row" do
@@ -197,7 +221,7 @@ describe DB do
         FooDriver.fake_row = [1] of FooDriver::Any
         db.query "query" do |rs|
           rs.move_next
-          expect_raises(Exception, "FooResultSet#read returned a Int32. A BarValue was expected.") do
+          expect_raises(DB::ColumnTypeMismatchError, "In FooDriver::FooResultSet#read the column 0 returned a Int32 but a BarValue was expected.") do
             w.check
             rs.read(BarValue)
           end
@@ -210,7 +234,7 @@ describe DB do
         BarDriver.fake_row = [1] of BarDriver::Any
         db.query "query" do |rs|
           rs.move_next
-          expect_raises(Exception, "BarResultSet#read returned a Int32. A FooValue was expected.") do
+          expect_raises(DB::ColumnTypeMismatchError, "In BarDriver::BarResultSet#read the column 0 returned a Int32 but a FooValue was expected.") do
             w.check
             rs.read(FooValue)
           end

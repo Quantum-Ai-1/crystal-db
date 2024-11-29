@@ -51,8 +51,8 @@ module DB
   class DriverSpecs(DBAnyType)
     record ColumnDef, name : String, sql_type : String, null : Bool
 
-    @before : Proc(Nil) = ->{}
-    @after : Proc(Nil) = ->{}
+    @before : Proc(Nil) = -> { }
+    @after : Proc(Nil) = -> { }
     @encode_null = "NULL"
     @support_prepared = true
     @support_unprepared = true
@@ -289,6 +289,62 @@ module DB
         ages.should eq([10, 20, 30])
       end
 
+      it "next_column_index" do |db|
+        db.exec sql_create_table_person
+        db.exec sql_insert_person, "foo", 10
+        db.exec sql_insert_person, "bar", 20
+
+        db.query sql_select_person do |rs|
+          rs.move_next
+          rs.next_column_index.should eq(0)
+          rs.read(String)
+          rs.next_column_index.should eq(1)
+          rs.read(Int32)
+          rs.next_column_index.should eq(2)
+
+          rs.move_next
+          rs.next_column_index.should eq(0)
+          rs.read(String)
+          rs.next_column_index.should eq(1)
+          rs.read(Int32)
+          rs.next_column_index.should eq(2)
+        end
+      end
+
+      it "next_column_index when ColumnTypeMismatchError" do |db|
+        db.exec sql_create_table_person
+        db.exec sql_insert_person, "foo", 10
+        db.exec sql_insert_person, "bar", 20
+
+        db.query sql_select_person do |rs|
+          rs.move_next
+          rs.next_column_index.should eq(0)
+          ex = expect_raises(ColumnTypeMismatchError) { rs.read(Int32) }
+          ex.column_index.should eq(0)
+          ex.column_name.should eq("name")
+          # NOTE: sqlite currently returns Int64 due to how Int32 is implemented
+          ex.column_type.should match(/String/)
+          # NOTE: pg currently returns Slice(UInt8) | String due to how String is implemented
+          ex.expected_type.should match(/Int/)
+          rs.next_column_index.should eq(1)
+          ex = expect_raises(ColumnTypeMismatchError) { rs.read(String) }
+          ex.column_index.should eq(1)
+          ex.column_name.should eq("age")
+          # NOTE: sqlite returns Int64
+          ex.column_type.should match(/Int/)
+          # NOTE: pg currently returns Slice(UInt8) | String due to how String is implemented
+          ex.expected_type.should match(/String/)
+          rs.next_column_index.should eq(2)
+
+          rs.move_next
+          rs.next_column_index.should eq(0)
+          expect_raises(ColumnTypeMismatchError) { rs.read(Int32) }
+          rs.next_column_index.should eq(1)
+          expect_raises(ColumnTypeMismatchError) { rs.read(String) }
+          rs.next_column_index.should eq(2)
+        end
+      end
+
       # describe "transactions" do
       it "transactions: can read inside transaction and rollback after" do |db|
         db.exec sql_create_table_person
@@ -338,9 +394,22 @@ module DB
     end
 
     # :nodoc:
-    def with_db(options = nil)
+    def with_db(options = nil, &)
       @before.call
-      DB.open("#{connection_string}#{"?#{options}" if options}") do |db|
+
+      if options
+        {% if compare_versions(Crystal::VERSION, "1.9.0") >= 0 %}
+          uri = URI.parse connection_string
+          uri.query_params.merge! URI::Params.parse(options)
+          connection_string_with_options = uri.to_s
+        {% else %}
+          raise "Crystal 1.9.0 or greater is required to run with_db with options"
+        {% end %}
+      else
+        connection_string_with_options = connection_string
+      end
+
+      DB.open(connection_string_with_options) do |db|
         db.exec(sql_drop_table("table1"))
         db.exec(sql_drop_table("table2"))
         db.exec(sql_drop_table("person"))
@@ -465,9 +534,9 @@ module DB
       drop_table_if_exists_syntax.call(table_name)
     end
 
-    def self.run(description = "as a db")
+    def self.run(description = "as a db", &)
       ctx = self.new
-      with ctx yield
+      with ctx yield ctx
 
       describe description do
         ctx.include_shared_specs
@@ -496,14 +565,16 @@ module DB
                 end
               end
             else
-              values.each do |prepared_statements|
-                it("#{db_it.description} (prepared_statements=#{prepared_statements})", db_it.file, db_it.line, db_it.end_line) do
-                  ctx.with_db "prepared_statements=#{prepared_statements}" do |db|
-                    db_it.block.call db
-                    nil
+              {% if compare_versions(Crystal::VERSION, "1.9.0") >= 0 %}
+                values.each do |prepared_statements|
+                  it("#{db_it.description} (prepared_statements=#{prepared_statements})", db_it.file, db_it.line, db_it.end_line) do
+                    ctx.with_db "prepared_statements=#{prepared_statements}" do |db|
+                      db_it.block.call db
+                      nil
+                    end
                   end
                 end
-              end
+              {% end %}
             end
           else
             raise "Invalid prepared value. Allowed values are :both and :default"

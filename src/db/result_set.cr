@@ -29,20 +29,20 @@ module DB
     end
 
     protected def do_close
-      statement.release_connection
+      statement.release_from_result_set
     end
 
     # TODO add_next_result_set : Bool
 
     # Iterates over all the rows
-    def each
+    def each(&)
       while move_next
         yield
       end
     end
 
     # Iterates over all the columns
-    def each_column
+    def each_column(&)
       column_count.times do |x|
         yield column_name(x)
       end
@@ -69,6 +69,11 @@ module DB
     # Reads the next column value
     abstract def read
 
+    # Returns the column index that corresponds to the next `#read`.
+    #
+    # If the last column of the current row has been read, it must return `#column_count`.
+    abstract def next_column_index : Int32
+
     # Reads the next columns and maps them to a class
     def read(type : DB::Mappable.class)
       type.new(self)
@@ -76,12 +81,36 @@ module DB
 
     # Reads the next column value as a **type**
     def read(type : T.class) : T forall T
+      col_index = next_column_index
       value = read
       if value.is_a?(T)
         value
       else
-        raise "#{self.class}#read returned a #{value.class}. A #{T} was expected."
+        raise DB::ColumnTypeMismatchError.new(
+          context: "#{self.class}#read",
+          column_index: col_index,
+          column_name: column_name(col_index),
+          column_type: value.class.to_s,
+          expected_type: T.to_s
+        )
       end
+    end
+
+    # Read the value based on the given `enum` type, supporting both string and
+    # numeric column types.
+    #
+    # ```
+    # enum Status
+    #   Pending
+    #   Complete
+    # end
+    #
+    # db.query "SELECT 'complete'" do |rs|
+    #   rs.read Status # => Status::Complete
+    # end
+    # ```
+    def read(type : Enum.class)
+      type.new(self)
     end
 
     # Reads the next columns and returns a tuple of the values.
@@ -121,5 +150,26 @@ module DB
     # def read_text
     #   yield ... io ....
     # end
+  end
+end
+
+struct Enum
+  def self.new(rs : DB::ResultSet) : self
+    index = rs.next_column_index
+
+    case value = rs.read
+    when String
+      parse value
+    when Int
+      from_value value
+    else
+      raise DB::ColumnTypeMismatchError.new(
+        context: "#{self}.new(rs : DB::ResultSet)",
+        column_index: index,
+        column_name: rs.column_name(index),
+        column_type: value.class.to_s,
+        expected_type: "String | Int",
+      )
+    end
   end
 end
